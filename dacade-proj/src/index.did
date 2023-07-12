@@ -1,0 +1,19 @@
+type ManualReply = variant { Ok : text; Err : text };
+type User = record {
+  id : nat64;
+  deposited : nat;
+  winamount : nat;
+  createdAt : nat64;
+  updatedAt : opt nat64;
+  address : principal;
+};
+type _AzleResult = variant { Ok : User; Err : text };
+type _AzleResult_1 = variant { Ok : nat; Err : text };
+service : () -> {
+  createAccount : () -> (_AzleResult);
+  deposit : () -> (ManualReply) query;
+  getDepositAddress : () -> (text) query;
+  getDepositedAmount : () -> (_AzleResult_1) query;
+  getRandomness : () -> (_AzleResult_1);
+  getWinAmount : () -> (_AzleResult_1) query;
+}
