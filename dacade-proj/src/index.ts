@@ -12,6 +12,11 @@ type User = Record<{
   winamount: bigint;
 }>;
 
+type WithdrawalError = 'InsufficientFunds' | 'TransferError';
+type BettingError = 'InsufficientFunds' | 'RandomnessError' | 'AccountNotFoundError';
+type DepositError = 'DepositError' | 'InsufficientBalance';
+type CommonError = 'ErrorOccurred';
+
 const UserStorage = new StableBTreeMap<Principal, User>(0, 44, 2048);
 
 export function createAccount(): Result<User, string> {
@@ -32,14 +37,14 @@ export function createAccount(): Result<User, string> {
   }
 }
 
-export async function withdraw(amount: bigint): Promise<Result<string, string>> {
+export async function withdraw(amount: bigint): Promise<Result<string, WithdrawalError>> {
   const caller = ic.caller();
   const user = UserStorage.get(caller);
   if (user) {
     const fromSubAccount = binaryAddressFromPrincipal(ic.id(), 0);
     const currentWithdrawableBalance = user.deposited + user.winamount;
     if (currentWithdrawableBalance < amount) {
-      return Result.Err<string, string>("You don't have enough funds");
+      return Result.Err<bigint, WithdrawalError>('InsufficientFunds');
     }
 
     const transferResult = await icp.transfer({
@@ -52,22 +57,22 @@ export async function withdraw(amount: bigint): Promise<Result<string, string>> 
     }).call();
 
     if (transferResult.Err) {
-      return Result.Err<string, string>(transferResult.Err.toString());
+      return Result.Err<string, WithdrawalError>('TransferError');
     }
 
-    return Result.Ok<string, string>(`${amount} withdrawn`);
+    return Result.Ok<string, WithdrawalError>(`${amount} withdrawn`);
   } else {
-    return Result.Err<string, string>('Withdrawal Failed');
+    return Result.Err<string, WithdrawalError>('AccountNotFoundError');
   }
 }
 
-export async function input(num: bigint): Promise<Result<string, string>> {
+export async function input(num: bigint): Promise<Result<string, BettingError>> {
   const caller = ic.caller();
   const user = UserStorage.get(caller);
   if (user) {
     let deposit = user.deposited;
     if (deposit < 10n) {
-      return Result.Err<string, string>('Insufficient Funds');
+      return Result.Err<string, BettingError>('InsufficientFunds');
     }
     const randomNum = await getRandomness();
     if (randomNum.Ok === num) {
@@ -75,28 +80,28 @@ export async function input(num: bigint): Promise<Result<string, string>> {
       user.deposited = user.deposited - 10n;
       user.updatedAt = Opt.Some(ic.time());
       UserStorage.insert(caller, { ...user });
-      return Result.Ok<string, string>('You won');
+      return Result.Ok<string, BettingError>('You won');
     } else {
       user.deposited = user.deposited - 10n;
       user.updatedAt = Opt.Some(ic.time());
       UserStorage.insert(caller, { ...user });
-      return Result.Ok<string, string>('You lost');
+      return Result.Ok<string, BettingError>('You lost');
     }
   } else {
-    return Result.Err<string, string>('Error occurred');
+    return Result.Err<string, BettingError>('AccountNotFoundError');
   }
 }
 
-export async function getRandomness(): Promise<Result<bigint, string>> {
+export async function getRandomness(): Promise<Result<bigint, BettingError>> {
   const randomnessResult = await managementCanister.raw_rand().call();
   if (randomnessResult.Ok) {
-    return Result.Ok<bigint, string>(BigInt(randomnessResult.Ok[4] % 20));
+    return Result.Ok<bigint, BettingError>(BigInt(randomnessResult.Ok[4] % 20));
   } else {
-    return Result.Err<bigint, string>('Error occurred while generating randomness');
+    return Result.Err<bigint, BettingError>('RandomnessError');
   }
 }
 
-export function deposit(): Promise<Result<string, string>> {
+export async function deposit(): Promise<Result<string, DepositError>> {
   const caller = ic.caller();
   return new Promise(async (resolve) => {
     const user = UserStorage.get(caller);
@@ -119,36 +124,36 @@ export function deposit(): Promise<Result<string, string>> {
         }).call();
 
         if (transferResult.Err) {
-          resolve(Result.Err<string, string>(transferResult.Err.toString()));
+          resolve(Result.Err<string, DepositError>('DepositError'));
         } else {
-          resolve(Result.Ok<string, string>('Icp tokens deposited'));
+          resolve(Result.Ok<string, DepositError>('Icp tokens deposited'));
         }
       } else {
-        resolve(Result.Err<string, string>('Please deposit ICP tokens to the specified address'));
+        resolve(Result.Err<string, DepositError>('InsufficientBalance'));
       }
     } else {
-      resolve(Result.Err<string, string>('Error occurred'));
+      resolve(Result.Err<string, DepositError>('AccountNotFoundError'));
     }
   });
 }
 
-export function getDepositedAmount(): Result<bigint, string> {
+export function getDepositedAmount(): Result<bigint, CommonError> {
   const caller = ic.caller();
   const user = UserStorage.get(caller);
   if (user) {
-    return Result.Ok<bigint, string>(user.deposited);
+    return Result.Ok<bigint, CommonError>(user.deposited);
   } else {
-    return Result.Err<bigint, string>('Error occurred');
+    return Result.Err<bigint, CommonError>('AccountNotFoundError');
   }
 }
 
-export function getWinAmount(): Result<bigint, string> {
+export function getWinAmount(): Result<bigint, CommonError> {
   const caller = ic.caller();
   const user = UserStorage.get(caller);
   if (user) {
-    return Result.Ok<bigint, string>(user.winamount);
+    return Result.Ok<bigint, CommonError>(user.winamount);
   } else {
-    return Result.Err<bigint, string>('No id found');
+    return Result.Err<bigint, CommonError>('AccountNotFoundError');
   }
 }
 
